@@ -3,7 +3,23 @@ import { GoogleGenerativeAI, Schema, SchemaType } from "@google/generative-ai";
 
 export async function POST(request: Request) {
   try {
-    const { gates, concessions, transits, incidents } = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    if (typeof body !== "object" || body === null) {
+      return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
+    }
+
+    const { gates, concessions, transits, incidents } = body;
+
+    // Validate that required fields are present and are arrays
+    if (!Array.isArray(gates) || !Array.isArray(concessions) || !Array.isArray(transits) || !Array.isArray(incidents)) {
+      return NextResponse.json({ error: "Telemetry parameters must be arrays" }, { status: 400 });
+    }
 
     const apiKey = process.env.GEMINI_API_KEY;
 
@@ -124,10 +140,11 @@ ${JSON.stringify(incidents, null, 2)}`;
     const result = JSON.parse(responseText);
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error in /api/advice:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to generate operational advice", details: error.message },
+      { error: "Failed to generate operational advice", details: errorMessage },
       { status: 500 }
     );
   }

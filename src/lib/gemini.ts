@@ -69,7 +69,10 @@ function detectLanguage(text: string): string {
 }
 
 // Live GenAI Fan Chat Response calling our Next.js API route
-export async function getFanAIResponse(message: string): Promise<{
+export async function getFanAIResponse(
+  message: string,
+  signal?: AbortSignal
+): Promise<{
   text: string;
   detectedLanguage: string;
   suggestedAction?: { label: string; action: string };
@@ -81,6 +84,7 @@ export async function getFanAIResponse(message: string): Promise<{
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ message }),
+      signal,
     });
 
     if (!response.ok) {
@@ -195,7 +199,8 @@ export async function getOpsAIAdvice(
   gates: GateInfo[],
   concessions: ConcessionStand[],
   transits: TransitRoute[],
-  incidents: StadiumIncident[]
+  incidents: StadiumIncident[],
+  signal?: AbortSignal
 ): Promise<{
   alerts: string[];
   recommendations: {
@@ -213,6 +218,7 @@ export async function getOpsAIAdvice(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ gates, concessions, transits, incidents }),
+      signal,
     });
 
     if (!response.ok) {

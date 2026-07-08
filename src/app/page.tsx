@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { 
   INITIAL_GATES, 
   INITIAL_CONCESSIONS, 
@@ -88,13 +88,25 @@ export default function Home() {
   const [isBotTyping, setIsBotTyping] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Trigger AI Operations update whenever the stadium state changes
+  // Trigger AI Operations update whenever the stadium state changes (with debounce and cancellation)
   useEffect(() => {
-    async function updateAIAdvice() {
-      const advice = await getOpsAIAdvice(gates, concessions, transits, incidents);
-      setAiAdvice(advice);
-    }
-    updateAIAdvice();
+    const controller = new AbortController();
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        const advice = await getOpsAIAdvice(gates, concessions, transits, incidents, controller.signal);
+        setAiAdvice(advice);
+      } catch (error) {
+        if (error instanceof Error && error.name !== "AbortError") {
+          console.error("Failed to update AI operational advice:", error);
+        }
+      }
+    }, 300); // 300ms debounce to prevent redundant API queries on fast state changes
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
   }, [gates, concessions, transits, incidents]);
 
   // Auto-scroll chat to bottom
@@ -102,8 +114,8 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, isBotTyping]);
 
-  // Handle fan sending message to chatbot
-  const handleSendChatMessage = async (textToSend: string) => {
+  // Handle fan sending message to chatbot (memoized)
+  const handleSendChatMessage = useCallback(async (textToSend: string) => {
     if (!textToSend.trim()) return;
 
     // Add user message
@@ -111,20 +123,31 @@ export default function Home() {
     setUserInput("");
     setIsBotTyping(true);
 
-    // Call GenAI interface
-    const response = await getFanAIResponse(textToSend);
-
-    setIsBotTyping(false);
-    setChatMessages((prev) => [
-      ...prev,
-      { 
-        sender: "bot", 
-        text: response.text, 
-        detectedLang: response.detectedLanguage,
-        suggestedAction: response.suggestedAction
-      }
-    ]);
-  };
+    try {
+      // Call GenAI interface
+      const response = await getFanAIResponse(textToSend);
+      setChatMessages((prev) => [
+        ...prev,
+        { 
+          sender: "bot", 
+          text: response.text, 
+          detectedLang: response.detectedLanguage,
+          suggestedAction: response.suggestedAction
+        }
+      ]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      setChatMessages((prev) => [
+        ...prev,
+        { 
+          sender: "bot", 
+          text: "Sorry, I am currently experiencing connection difficulties. Please check your network or try again.",
+        }
+      ]);
+    } finally {
+      setIsBotTyping(false);
+    }
+  }, []);
 
   // Preset quick questions for fans
   const quickQuestions = [
@@ -134,8 +157,8 @@ export default function Home() {
     { label: "Eco refill?", q: "Can I bring my own water bottle, and where are the refill stations?" }
   ];
 
-  // Quick Action: Simulate stadium incident
-  const handleSimulateIncident = (
+  // Quick Action: Simulate stadium incident (memoized)
+  const handleSimulateIncident = useCallback((
     category: StadiumIncident["category"],
     section: string,
     description: string,
@@ -164,10 +187,10 @@ export default function Home() {
     } else if (description.includes("NJ Transit")) {
       setTransits((prev) => prev.map(t => t.id === "transit-train" ? { ...t, status: "Delayed", statusMessage: "Signal delay near Secaucus. Expect 15-minute gaps." } : t));
     }
-  };
+  }, []);
 
-  // Dispatch incident staff
-  const handleDispatchIncident = (id: string) => {
+  // Dispatch incident staff (memoized)
+  const handleDispatchIncident = useCallback((id: string) => {
     setIncidents((prev) => prev.map(inc => {
       if (inc.id === id) {
         let assigned = "Security Rapid Unit 4";
@@ -177,10 +200,10 @@ export default function Home() {
       }
       return inc;
     }));
-  };
+  }, []);
 
-  // Resolve incident
-  const handleResolveIncident = (id: string, description: string) => {
+  // Resolve incident (memoized)
+  const handleResolveIncident = useCallback((id: string, description: string) => {
     setIncidents((prev) => prev.map(inc => {
       if (inc.id === id) {
         return { ...inc, status: "Resolved", assignedStaff: "Resolved" };
@@ -198,12 +221,17 @@ export default function Home() {
     } else if (description.includes("NJ Transit")) {
       setTransits((prev) => prev.map(t => t.id === "transit-train" ? { ...t, status: "Normal", statusMessage: "Trains operating on 10-minute intervals post-match." } : t));
     }
-  };
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen">
+      
       {/* 1. Global Live Match Header Ticker */}
-      <div className="bg-gradient-to-r from-brand-navy-dark via-brand-blue to-brand-emerald text-xs font-semibold py-2 px-4 flex items-center justify-between border-b border-white/5 overflow-x-auto whitespace-nowrap gap-6 z-10">
+      <div 
+        role="status" 
+        aria-live="polite" 
+        className="bg-gradient-to-r from-brand-navy-dark via-brand-blue to-brand-emerald text-xs font-semibold py-2 px-4 flex items-center justify-between border-b border-white/5 overflow-x-auto whitespace-nowrap gap-6 z-10"
+      >
         <div className="flex items-center gap-2">
           <span className="inline-flex h-2 w-2 rounded-full bg-brand-emerald animate-pulse"></span>
           <span className="text-brand-gold font-bold">LIVE MATCH:</span>
@@ -220,7 +248,7 @@ export default function Home() {
       {/* 2. Main Navigation Bar */}
       <header className="glass-panel sticky top-0 py-4 px-6 flex items-center justify-between z-20 border-x-0">
         <div className="flex items-center gap-3">
-          <div className="bg-brand-gold text-brand-navy p-2 rounded-lg font-black text-xl shadow-lg shadow-brand-gold/10 flex items-center justify-center">
+          <div className="bg-brand-gold text-brand-navy p-2 rounded-lg font-black text-xl shadow-lg shadow-brand-gold/10 flex items-center justify-center" aria-hidden="true">
             ⚽
           </div>
           <div>
@@ -234,64 +262,72 @@ export default function Home() {
         </div>
 
         {/* Role Toggle Switch */}
-        <div className="bg-brand-navy-dark/80 p-1.5 rounded-full border border-white/5 flex gap-1 shadow-inner">
+        <nav aria-label="Role switcher" className="bg-brand-navy-dark/80 p-1.5 rounded-full border border-white/5 flex gap-1 shadow-inner">
           <button
             onClick={() => setActiveRole("ops")}
+            aria-pressed={activeRole === "ops"}
+            aria-label="Ops Command Center"
             className={`px-5 py-1.5 rounded-full text-xs font-bold transition-all duration-300 flex items-center gap-1.5 ${
               activeRole === "ops"
                 ? "bg-brand-blue text-white shadow-md shadow-brand-blue/30"
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            <Activity size={14} />
+            <Activity size={14} aria-hidden="true" />
             Ops Command Center
           </button>
           <button
             onClick={() => setActiveRole("fan")}
+            aria-pressed={activeRole === "fan"}
+            aria-label="Fan Companion Portal"
             className={`px-5 py-1.5 rounded-full text-xs font-bold transition-all duration-300 flex items-center gap-1.5 ${
               activeRole === "fan"
                 ? "bg-brand-emerald text-brand-navy-dark shadow-md shadow-brand-emerald/30"
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            <Users size={14} />
+            <Users size={14} aria-hidden="true" />
             Fan Companion Portal
           </button>
-        </div>
+        </nav>
       </header>
 
       {/* 3. Dashboard Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* LEFT COLUMN (Lg: 8 cols) - Stadium Visualizer Map & Live Stats */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
+        <section aria-labelledby="map-heading" className="lg:col-span-8 flex flex-col gap-6">
           
           {/* Stadium Interactive Map Card */}
           <div className="glass-panel rounded-2xl p-4 md:p-6 flex flex-col gap-4 relative overflow-hidden">
             {/* Ambient Background Lights */}
-            <div className="absolute top-0 right-0 w-64 h-64 bg-brand-cyan/5 rounded-full blur-3xl -z-10"></div>
+            <div className="absolute top-0 right-0 w-64 h-64 bg-brand-cyan/5 rounded-full blur-3xl -z-10" aria-hidden="true"></div>
             
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-extrabold text-white flex items-center gap-2 text-base">
-                  <Layers size={18} className="text-brand-cyan" />
+                <h2 id="map-heading" className="font-extrabold text-white flex items-center gap-2 text-base">
+                  <Layers size={18} className="text-brand-cyan" aria-hidden="true" />
                   MetLife Arena Digital Twin Map
-                </h3>
+                </h2>
                 <p className="text-xs text-slate-400">Live gate queue times, concessions & active incidents</p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded-md font-semibold">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                <span className="flex items-center gap-1.5 text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded-md font-semibold" aria-live="polite">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" aria-hidden="true"></span>
                   Active Map Feeds
                 </span>
               </div>
             </div>
 
             {/* Stadium SVG Interactive Grid Map */}
-            <div className="w-full aspect-[4/3] max-h-[460px] bg-brand-navy-dark/95 border border-white/5 rounded-xl p-6 flex items-center justify-center relative overflow-hidden shadow-inner">
+            <div 
+              role="region" 
+              aria-label="MetLife Arena Digital Twin Map showing live gate wait times, concession statuses, and active incidents" 
+              className="w-full aspect-[4/3] max-h-[460px] bg-brand-navy-dark/95 border border-white/5 rounded-xl p-6 flex items-center justify-center relative overflow-hidden shadow-inner"
+            >
               
               {/* Grid backdrop */}
-              <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.015)_1px,transparent_1px)] [background-size:16px_16px]"></div>
+              <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.015)_1px,transparent_1px)] [background-size:16px_16px]" aria-hidden="true"></div>
               
               {/* Main Stadium Outer Ring */}
               <div className="relative w-full h-full max-w-[480px] max-h-[360px] border-4 border-dashed border-slate-700/20 rounded-[80px_160px] flex items-center justify-center">
@@ -324,20 +360,23 @@ export default function Home() {
                       key={gate.id} 
                       style={{ left: `${gate.coordinate.x}%`, top: `${gate.coordinate.y}%` }}
                       className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group cursor-pointer z-10"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${gate.name}. Wait time is ${gate.queueTimeMin} minutes. Status is ${gate.status}.`}
                     >
                       {/* Pulse Ring */}
                       <span className={`absolute inline-flex h-8 w-8 rounded-full opacity-35 animate-ping -z-10 ${
                         gate.status === "Open"
                           ? gate.queueTimeMin > 20 ? "bg-amber-500" : "bg-brand-emerald"
                           : gate.status === "Delayed" ? "bg-yellow-500" : "bg-rose-500"
-                      }`}></span>
+                      }`} aria-hidden="true"></span>
 
-                      <div className={`h-7 w-7 rounded-full flex items-center justify-center border font-bold text-[9px] shadow-lg bg-brand-navy-dark ${statusColors}`}>
+                      <div className={`h-7 w-7 rounded-full flex items-center justify-center border font-bold text-[9px] shadow-lg bg-brand-navy-dark ${statusColors}`} aria-hidden="true">
                         {gate.id.split("-")[1].toUpperCase()}
                       </div>
                       
                       {/* Popover tooltip */}
-                      <div className="absolute bottom-9 left-1/2 -translate-x-1/2 w-44 bg-brand-navy-dark border border-white/10 p-2.5 rounded-lg text-left shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30">
+                      <div className="absolute bottom-9 left-1/2 -translate-x-1/2 w-44 bg-brand-navy-dark border border-white/10 p-2.5 rounded-lg text-left shadow-2xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity pointer-events-none z-30">
                         <p className="text-xs font-black text-white">{gate.name}</p>
                         <div className="flex justify-between items-center mt-1 text-[10px]">
                           <span className="text-slate-400">Status:</span>
@@ -362,16 +401,19 @@ export default function Home() {
                     key={con.id} 
                     style={{ left: `${con.coordinate.x}%`, top: `${con.coordinate.y}%` }}
                     className="absolute -translate-x-1/2 -translate-y-1/2 group cursor-pointer z-10"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${con.name}. Proximity: ${con.location}. Wait time is ${con.queueTimeMin} minutes. Featured item: ${con.featuredItem}. ${con.isEcoFriendly ? 'Eco-friendly certified.' : ''}`}
                   >
                     <div className={`h-4 w-4 rounded-full flex items-center justify-center border text-[8px] font-black shadow-md ${
                       con.isEcoFriendly 
                         ? "bg-brand-emerald-light text-brand-navy border-brand-emerald/30" 
                         : "bg-brand-blue text-white border-white/10"
-                    }`}>
+                    }`} aria-hidden="true">
                       🏪
                     </div>
                     {/* Tooltip */}
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-44 bg-brand-navy-dark border border-white/10 p-2.5 rounded-lg text-left shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30">
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-44 bg-brand-navy-dark border border-white/10 p-2.5 rounded-lg text-left shadow-2xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity pointer-events-none z-30">
                       <p className="text-xs font-bold text-white">{con.name}</p>
                       <p className="text-[10px] text-brand-emerald-light mt-0.5">{con.featuredItem}</p>
                       <div className="flex justify-between items-center mt-1 text-[10px]">
@@ -392,18 +434,20 @@ export default function Home() {
                     key={inc.id}
                     className="absolute z-20 cursor-pointer animate-bounce"
                     style={{ 
-                      // Anchor incident coordinates based on their categories or sections
                       left: inc.section.includes("Gate C") ? "75%" : inc.section.includes("124") ? "45%" : "30%", 
                       top: inc.section.includes("Gate C") ? "75%" : inc.section.includes("124") ? "60%" : "25%" 
                     }}
+                    role="alert"
+                    tabIndex={0}
+                    aria-label={`Incident reported: ${inc.description}. Section: ${inc.section}. Severity: ${inc.severity}. Status: ${inc.status}. Assigned to: ${inc.assignedStaff}.`}
                   >
-                    <div className="h-6 w-6 bg-rose-500 border border-white rounded-full flex items-center justify-center text-xs shadow-lg glow-pulse-rose">
+                    <div className="h-6 w-6 bg-rose-500 border border-white rounded-full flex items-center justify-center text-xs shadow-lg glow-pulse-rose" aria-hidden="true">
                       🚨
                     </div>
                     {/* Tooltip */}
                     <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-48 bg-brand-navy-dark border border-rose-500 p-2.5 rounded-lg text-left shadow-2xl z-30">
                       <div className="flex items-center gap-1.5 text-[10px] text-rose-400 font-bold uppercase">
-                        <AlertTriangle size={10} />
+                        <AlertTriangle size={10} aria-hidden="true" />
                         {inc.category} Alert
                       </div>
                       <p className="text-xs font-bold text-white mt-1">{inc.description}</p>
@@ -419,21 +463,21 @@ export default function Home() {
             </div>
 
             {/* Map Legend */}
-            <div className="flex flex-wrap items-center justify-center gap-6 mt-2 pt-3 border-t border-white/5 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center justify-center gap-6 mt-2 pt-3 border-t border-white/5 text-xs text-slate-400" aria-label="Map legend">
               <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-brand-emerald"></span> Gate Open (Low Queue)
+                <span className="h-2 w-2 rounded-full bg-brand-emerald" aria-hidden="true"></span> Gate Open (Low Queue)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-amber-500"></span> Gate Congested
+                <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden="true"></span> Gate Congested
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-yellow-400 animate-pulse"></span> Gate Delayed / Technical issue
+                <span className="h-2.5 w-2.5 rounded-full bg-yellow-400 animate-pulse" aria-hidden="true"></span> Gate Delayed / Technical issue
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-brand-emerald-light"></span> Eco Concession Stand
+                <span className="h-2 w-2 rounded-full bg-brand-emerald-light" aria-hidden="true"></span> Eco Concession Stand
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded-full bg-rose-500 flex items-center justify-center text-[7px]">🚨</span> Active Incident
+                <span className="h-3 w-3 rounded-full bg-rose-500 flex items-center justify-center text-[7px]" aria-hidden="true">🚨</span> Active Incident
               </span>
             </div>
 
@@ -443,11 +487,11 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             
             {/* Gates Queue list */}
-            <div className="glass-panel rounded-2xl p-4 flex flex-col gap-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Clock size={14} className="text-brand-cyan" />
+            <section aria-labelledby="wait-times-heading" className="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+              <h3 id="wait-times-heading" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Clock size={14} className="text-brand-cyan" aria-hidden="true" />
                 Live Gate Wait Times
-              </h4>
+              </h3>
               <div className="flex flex-col gap-2 overflow-y-auto max-h-48 pr-1">
                 {gates.map((g) => (
                   <div key={g.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-brand-navy-dark/50 border border-white/5 rounded-lg">
@@ -464,14 +508,14 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
 
             {/* Public Transit status */}
-            <div className="glass-panel rounded-2xl p-4 flex flex-col gap-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Bus size={14} className="text-brand-cyan" />
+            <section aria-labelledby="transit-heading" className="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+              <h3 id="transit-heading" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Bus size={14} className="text-brand-cyan" aria-hidden="true" />
                 Transit & Egress Schedules
-              </h4>
+              </h3>
               <div className="flex flex-col gap-2 overflow-y-auto max-h-48 pr-1">
                 {transits.map((t) => (
                   <div key={t.id} className="flex flex-col gap-0.5 text-xs py-1.5 px-2 bg-brand-navy-dark/50 border border-white/5 rounded-lg">
@@ -487,14 +531,14 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
 
             {/* Sustainability Metrics */}
-            <div className="glass-panel rounded-2xl p-4 flex flex-col gap-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Leaf size={14} className="text-brand-emerald-light" />
+            <section aria-labelledby="sustainability-heading" className="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+              <h3 id="sustainability-heading" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Leaf size={14} className="text-brand-emerald-light" aria-hidden="true" />
                 World Cup Sustainability
-              </h4>
+              </h3>
               <div className="flex flex-col gap-2 text-xs">
                 <div>
                   <div className="flex justify-between text-[10px] text-slate-400 mb-1">
@@ -507,56 +551,61 @@ export default function Home() {
                 </div>
 
                 <div className="flex justify-between items-center py-1 bg-brand-navy-dark/50 px-2 rounded-lg border border-white/5">
-                  <span className="text-[10px] text-slate-400 flex items-center gap-1"><Droplet size={10} className="text-blue-400" /> Water Saved</span>
+                  <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <Droplet size={10} className="text-blue-400" aria-hidden="true" /> Water Saved
+                  </span>
                   <span className="font-bold text-white text-xs">{sustainability.waterSavedGallons.toLocaleString()} gal</span>
                 </div>
 
                 <div className="flex justify-between items-center py-1 bg-brand-navy-dark/50 px-2 rounded-lg border border-white/5">
-                  <span className="text-[10px] text-slate-400 flex items-center gap-1"><Trash2 size={10} className="text-emerald-400" /> Compost / Recycle</span>
+                  <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <Trash2 size={10} className="text-emerald-400" aria-hidden="true" /> Compost / Recycle
+                  </span>
                   <span className="font-bold text-white text-xs">{(sustainability.compostWasteKg + sustainability.recycleWasteKg).toLocaleString()} kg</span>
                 </div>
               </div>
-            </div>
+            </section>
 
           </div>
 
-        </div>
+        </section>
 
         {/* RIGHT COLUMN (Lg: 4 cols) - Role Specific Controls */}
-        <div className="lg:col-span-4 flex flex-col gap-6">
+        <section aria-labelledby="panel-heading" className="lg:col-span-4 flex flex-col gap-6">
+          <h2 id="panel-heading" className="sr-only">Control Panel</h2>
 
           {/* ACTIVE ROLE 1: STADIUM OPERATIONS DASHBOARD */}
           {activeRole === "ops" && (
             <>
               {/* AI Dispatch & Recommendations */}
-              <div className="glass-panel rounded-2xl p-5 flex flex-col gap-4 border border-brand-cyan/20">
+              <article aria-labelledby="ai-ops-heading" className="glass-panel rounded-2xl p-5 flex flex-col gap-4 border border-brand-cyan/20">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="p-1.5 rounded-lg bg-brand-cyan/10 text-brand-cyan">
-                      <Sparkles size={16} />
+                      <Sparkles size={16} aria-hidden="true" />
                     </div>
                     <div>
-                      <h3 className="font-extrabold text-white text-sm">Ops AI Anomaly Dispatch</h3>
+                      <h3 id="ai-ops-heading" className="font-extrabold text-white text-sm">Ops AI Anomaly Dispatch</h3>
                       <p className="text-[10px] text-brand-cyan font-bold uppercase tracking-wider">Generative Advisor</p>
                     </div>
                   </div>
                   <span className="text-[9px] bg-white/5 px-2 py-0.5 rounded font-mono text-slate-400 flex items-center gap-1">
-                    <RefreshCw size={8} className="animate-spin" />
+                    <RefreshCw size={8} className="animate-spin" aria-hidden="true" />
                     Reactive
                   </span>
                 </div>
 
                 {/* AI Alerts Ticker */}
                 {aiAdvice.alerts.length > 0 && (
-                  <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 flex flex-col gap-1.5">
+                  <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 flex flex-col gap-1.5" role="alert" aria-live="assertive">
                     <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
-                      <AlertTriangle size={12} />
+                      <AlertTriangle size={12} aria-hidden="true" />
                       Active Operations Anomalies
                     </span>
                     <div className="flex flex-col gap-1 text-[11px] text-slate-200 pl-1">
                       {aiAdvice.alerts.slice(0, 3).map((alert, i) => (
                         <div key={i} className="flex items-start gap-1">
-                          <span className="text-rose-400">•</span>
+                          <span className="text-rose-400" aria-hidden="true">•</span>
                           <span className="truncate">{alert}</span>
                         </div>
                       ))}
@@ -565,7 +614,7 @@ export default function Home() {
                 )}
 
                 {/* AI Suggestions Card List */}
-                <div className="flex flex-col gap-3 overflow-y-auto max-h-[290px] pr-1">
+                <div className="flex flex-col gap-3 overflow-y-auto max-h-[290px] pr-1" aria-label="AI Recommendations list">
                   {aiAdvice.recommendations.map((rec, i) => {
                     const priorityStyles = 
                       rec.priority === "Critical" 
@@ -595,13 +644,13 @@ export default function Home() {
                     );
                   })}
                 </div>
-              </div>
+              </article>
 
               {/* Operations Incident Control (Simulator) */}
-              <div className="glass-panel rounded-2xl p-5 flex flex-col gap-4">
+              <article aria-labelledby="ops-sim-heading" className="glass-panel rounded-2xl p-5 flex flex-col gap-4">
                 <div>
-                  <h3 className="font-extrabold text-white text-sm flex items-center gap-1.5">
-                    <ShieldAlert size={16} className="text-brand-gold" />
+                  <h3 id="ops-sim-heading" className="font-extrabold text-white text-sm flex items-center gap-1.5">
+                    <ShieldAlert size={16} className="text-brand-gold" aria-hidden="true" />
                     Ops Incident Center (Simulator)
                   </h3>
                   <p className="text-[10px] text-slate-400">Trigger sensor and logistics anomalies to test AI recommendations</p>
@@ -616,6 +665,7 @@ export default function Home() {
                       "Scanner hardware fault in entry Plaza Gate C. Queue backlog expanding.",
                       "High"
                     )}
+                    aria-label="Simulate Gate C scanner fault"
                     className="py-2 px-3 rounded-lg border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 text-rose-300 text-left transition-colors font-medium flex flex-col justify-between h-16"
                   >
                     <span className="text-[10px] font-bold text-rose-400">🚨 GATE C FAULT</span>
@@ -629,6 +679,7 @@ export default function Home() {
                       "Crowd congestion surge at Gate B. Queue wait exceeds 40 mins.",
                       "High"
                     )}
+                    aria-label="Simulate Gate B crowd surge"
                     className="py-2 px-3 rounded-lg border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 text-amber-300 text-left transition-colors font-medium flex flex-col justify-between h-16"
                   >
                     <span className="text-[10px] font-bold text-amber-400">👥 GATE B SURGE</span>
@@ -642,6 +693,7 @@ export default function Home() {
                       "Concession Jersey Grill register crash. Long serving lines forming.",
                       "Medium"
                     )}
+                    aria-label="Simulate concession register crash"
                     className="py-2 px-3 rounded-lg border border-blue-500/20 bg-blue-500/5 hover:bg-blue-500/10 text-blue-300 text-left transition-colors font-medium flex flex-col justify-between h-16"
                   >
                     <span className="text-[10px] font-bold text-blue-400">🍔 CONCESSION CRASH</span>
@@ -655,6 +707,7 @@ export default function Home() {
                       "NJ Transit Rail signal delay. Egress backup expected at train terminals.",
                       "Medium"
                     )}
+                    aria-label="Simulate train signal delay"
                     className="py-2 px-3 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 text-left transition-colors font-medium flex flex-col justify-between h-16"
                   >
                     <span className="text-[10px] font-bold text-purple-400">🚆 NJ RAIL DELAY</span>
@@ -662,10 +715,10 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="border-t border-white/5 my-1"></div>
+                <div className="border-t border-white/5 my-1" aria-hidden="true"></div>
 
                 {/* Active Incident List */}
-                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1" aria-label="Active incident list">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Incident Dispatch Queue ({incidents.filter(inc => inc.status !== "Resolved").length})</span>
                   {incidents.map((inc) => (
                     <div key={inc.id} className="bg-brand-navy-dark/60 border border-white/5 rounded-lg p-2.5 flex flex-col gap-1.5 text-[11px] relative">
@@ -685,6 +738,7 @@ export default function Home() {
                           {inc.status === "New" && (
                             <button 
                               onClick={() => handleDispatchIncident(inc.id)}
+                              aria-label={`Dispatch staff for incident at ${inc.section}`}
                               className="px-2 py-0.5 bg-brand-cyan text-brand-navy font-bold rounded text-[9px] hover:bg-white transition-colors"
                             >
                               Dispatch
@@ -693,6 +747,7 @@ export default function Home() {
                           {inc.status !== "Resolved" && (
                             <button 
                               onClick={() => handleResolveIncident(inc.id, inc.description)}
+                              aria-label={`Resolve incident at ${inc.section}`}
                               className="px-2 py-0.5 bg-slate-800 text-slate-300 font-bold rounded text-[9px] hover:bg-slate-700 transition-colors"
                             >
                               Resolve
@@ -703,7 +758,7 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </article>
             </>
           )}
 
@@ -711,24 +766,25 @@ export default function Home() {
           {activeRole === "fan" && (
             <>
               {/* Fan Smart seat & gate router */}
-              <div className="glass-panel rounded-2xl p-5 flex flex-col gap-4 border border-brand-emerald/30">
+              <article aria-labelledby="fan-nav-heading" className="glass-panel rounded-2xl p-5 flex flex-col gap-4 border border-brand-emerald/30">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-brand-emerald/10 text-brand-emerald-light">
-                    <Compass size={16} />
+                    <Compass size={16} aria-hidden="true" />
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-white text-sm">Smart Seat & Concession Navigator</h3>
+                    <h3 id="fan-nav-heading" className="font-extrabold text-white text-sm">Smart Seat & Concession Navigator</h3>
                     <p className="text-[10px] text-brand-emerald-light font-bold uppercase tracking-wider">Egress Routing</p>
                   </div>
                 </div>
 
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" />
                     <input
                       type="number"
                       placeholder="Enter Seat Section (e.g. 114)"
                       value={fanTicketSection}
+                      aria-label="Seat Section Number"
                       onChange={(e) => setFanTicketSection(e.target.value)}
                       className="w-full bg-brand-navy-dark border border-white/10 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-brand-emerald focus:ring-1 focus:ring-brand-emerald text-white"
                       min="100"
@@ -738,7 +794,7 @@ export default function Home() {
                 </div>
 
                 {routingResult ? (
-                  <div className="bg-brand-navy-dark/65 border border-white/5 rounded-xl p-3 flex flex-col gap-2 text-xs">
+                  <div className="bg-brand-navy-dark/65 border border-white/5 rounded-xl p-3 flex flex-col gap-2 text-xs" aria-live="polite">
                     <div className="flex justify-between items-start border-b border-white/5 pb-2">
                       <div>
                         <span className="text-[9px] text-slate-500 uppercase font-black block">Section {fanTicketSection} Gate Entry</span>
@@ -756,7 +812,7 @@ export default function Home() {
                       Use <strong className="text-slate-200">{routingResult.secondaryGate.name}</strong> if Gate A Plaza is congested ({routingResult.secondaryGate.queueTimeMin}m wait).
                     </div>
 
-                    <div className="border-t border-white/5 my-1"></div>
+                    <div className="border-t border-white/5 my-1" aria-hidden="true"></div>
 
                     <div>
                       <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">Closest Eco Concessions:</span>
@@ -773,10 +829,10 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="border-t border-white/5 my-1"></div>
+                    <div className="border-t border-white/5 my-1" aria-hidden="true"></div>
 
                     <div className="text-[10px] text-slate-300 bg-brand-navy-dark/95 p-2 rounded border border-white/5 flex items-start gap-1.5">
-                      <Accessibility size={12} className="text-brand-cyan shrink-0 mt-0.5" />
+                      <Accessibility size={12} className="text-brand-cyan shrink-0 mt-0.5" aria-hidden="true" />
                       <span>{routingResult.accessibilityNotes}</span>
                     </div>
                   </div>
@@ -785,28 +841,32 @@ export default function Home() {
                     Enter your ticket section number above (100 - 350) to fetch real-time routes.
                   </div>
                 )}
-              </div>
+              </article>
 
               {/* GenAI Multilingual Virtual Chat Companion */}
-              <div className="glass-panel rounded-2xl p-5 flex flex-col gap-4 flex-1 min-h-[350px]">
+              <article aria-labelledby="chat-heading" className="glass-panel rounded-2xl p-5 flex flex-col gap-4 flex-1 min-h-[350px]">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="p-1.5 rounded-lg bg-brand-emerald/10 text-brand-emerald-light">
-                      <Languages size={16} />
+                      <Languages size={16} aria-hidden="true" />
                     </div>
                     <div>
-                      <h3 className="font-extrabold text-white text-sm">Multilingual AI Companion</h3>
+                      <h3 id="chat-heading" className="font-extrabold text-white text-sm">Multilingual AI Companion</h3>
                       <p className="text-[10px] text-brand-emerald-light font-bold uppercase tracking-wider">FIFA Assistant</p>
                     </div>
                   </div>
                   <span className="text-[8px] bg-white/5 px-2 py-0.5 rounded font-mono text-slate-400 flex items-center gap-1">
-                    <Sparkles size={8} className="text-brand-gold animate-pulse" />
+                    <Sparkles size={8} className="text-brand-gold animate-pulse" aria-hidden="true" />
                     Generative
                   </span>
                 </div>
 
                 {/* Chat window */}
-                <div className="bg-brand-navy-dark/75 border border-white/5 rounded-xl p-3 flex-1 flex flex-col gap-3 h-64 overflow-y-auto relative shadow-inner">
+                <div 
+                  role="log"
+                  aria-label="Chat messages history"
+                  className="bg-brand-navy-dark/75 border border-white/5 rounded-xl p-3 flex-1 flex flex-col gap-3 h-64 overflow-y-auto relative shadow-inner"
+                >
                   {chatMessages.map((msg, i) => (
                     <div 
                       key={i} 
@@ -833,15 +893,15 @@ export default function Home() {
                         <button
                           onClick={() => {
                             if (msg.suggestedAction?.action === "transportation") {
-                              // Perform trigger action
                               handleSendChatMessage("What is the NJ Transit Train status?");
                             } else if (msg.suggestedAction?.action === "accessibility") {
                               handleSendChatMessage("What accessibility features are in MetLife Stadium?");
                             }
                           }}
+                          aria-label={`Shortcut: ${msg.suggestedAction.label}`}
                           className="mt-1.5 text-[9px] bg-brand-emerald/10 text-brand-emerald-light border border-brand-emerald/20 px-2 py-1 rounded hover:bg-brand-emerald hover:text-brand-navy-dark transition-colors font-bold flex items-center gap-1"
                         >
-                          <Navigation size={8} />
+                          <Navigation size={8} aria-hidden="true" />
                           {msg.suggestedAction.label}
                         </button>
                       )}
@@ -849,7 +909,7 @@ export default function Home() {
                   ))}
 
                   {isBotTyping && (
-                    <div className="self-start flex flex-col max-w-[85%]">
+                    <div className="self-start flex flex-col max-w-[85%]" aria-label="AI bot is typing">
                       <div className="bg-brand-navy border border-white/5 p-2 rounded-xl rounded-bl-none flex gap-1 items-center">
                         <span className="h-1.5 w-1.5 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
                         <span className="h-1.5 w-1.5 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
@@ -861,7 +921,7 @@ export default function Home() {
                 </div>
 
                 {/* Preset quick question shortcuts */}
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5" aria-label="Quick questions shortcuts">
                   {quickQuestions.map((qq, idx) => (
                     <button
                       key={idx}
@@ -879,22 +939,24 @@ export default function Home() {
                     type="text"
                     placeholder="Ask AI Companion..."
                     value={userInput}
+                    aria-label="Type message to AI Companion"
                     onChange={(e) => setUserInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") handleSendChatMessage(userInput); }}
                     className="flex-1 bg-brand-navy-dark border border-white/10 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-brand-emerald focus:ring-1 focus:ring-brand-emerald text-white"
                   />
                   <button
                     onClick={() => handleSendChatMessage(userInput)}
+                    aria-label="Send message to AI Companion"
                     className="p-2 bg-brand-emerald hover:bg-white text-brand-navy-dark font-black rounded-lg transition-colors"
                   >
-                    <Send size={14} />
+                    <Send size={14} aria-hidden="true" />
                   </button>
                 </div>
-              </div>
+              </article>
             </>
           )}
 
-        </div>
+        </section>
 
       </main>
 
@@ -905,11 +967,11 @@ export default function Home() {
             <span className="font-extrabold text-white">FIFA ArenaSync</span>
             <span>• GenAI-Powered Tournament Venue Operations Portal</span>
           </div>
-          <div className="flex items-center gap-6">
+          <nav aria-label="Footer links" className="flex items-center gap-6">
             <a href="#" className="hover:text-white transition-colors">Stadium Guidelines</a>
             <a href="#" className="hover:text-white transition-colors">Zero-Waste Standard</a>
             <a href="#" className="hover:text-white transition-colors">Contact Dispatch</a>
-          </div>
+          </nav>
         </div>
       </footer>
     </div>

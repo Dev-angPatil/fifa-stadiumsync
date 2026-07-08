@@ -4,10 +4,31 @@ import { KNOWLEDGE_BASE } from "@/lib/stadiumData";
 
 export async function POST(request: Request) {
   try {
-    const { message } = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
 
-    if (!message) {
-      return NextResponse.json({ error: "Message is required" }, { status: 400 });
+    if (typeof body !== "object" || body === null || !("message" in body)) {
+      return NextResponse.json({ error: "Invalid request payload structure" }, { status: 400 });
+    }
+
+    const message = body.message;
+
+    if (typeof message !== "string") {
+      return NextResponse.json({ error: "Message must be a string" }, { status: 400 });
+    }
+
+    const trimmedMessage = message.trim();
+
+    if (trimmedMessage.length === 0) {
+      return NextResponse.json({ error: "Message cannot be empty" }, { status: 400 });
+    }
+
+    if (trimmedMessage.length > 1000) {
+      return NextResponse.json({ error: "Message exceeds maximum length of 1000 characters" }, { status: 400 });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -71,7 +92,7 @@ Provide responses in the same language the user writes in (e.g. Spanish, French,
     };
 
     const response = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: message }] }],
+      contents: [{ role: "user", parts: [{ text: trimmedMessage }] }],
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: responseSchema,
@@ -83,10 +104,11 @@ Provide responses in the same language the user writes in (e.g. Spanish, French,
     const result = JSON.parse(responseText);
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error in /api/chat:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to process chat response", details: error.message },
+      { error: "Failed to process chat response", details: errorMessage },
       { status: 500 }
     );
   }
