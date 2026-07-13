@@ -1,14 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-navy-dark: #070b19;
-  --color-brand-navy: #0d1527;
-  --color-brand-blue: #1e3a8a;
-  --color-brand-emerald: #059669;
-  --color-brand-emerald-light: #34d399;
-  --color-brand-gold: #fbbf24;
-  --color-brand-cyan: #06b6d4;
-  --color-brand-glow: rgba(6, 182, 212, 0.15);
+  --color-brand-navy-dark: #000000; /* HashiCorp canvas background */
+  --color-brand-navy: #15181e; /* HashiCorp surface-1 card background */
+  --color-brand-surface-2: #1f232b; /* HashiCorp surface-2 */
+  --color-brand-surface-3: #3b3d45; /* HashiCorp surface-3 / hairline */
+  
+  /* HashiCorp Product chromatics mapped to stadium systems */
+  --color-brand-gate-purple: #7b42bc; /* product-terraform */
+  --color-brand-alert-yellow: #ffcf25; /* product-vault */
+  --color-brand-medical-red: #e62b1e; /* product-consul */
+  --color-brand-ops-cyan: #14c6cb; /* product-waypoint */
+  --color-brand-eco-green: #00ca8e; /* product-nomad */
+  --color-brand-transit-blue: #1868f2; /* product-vagrant */
+  
+  --color-brand-glow: rgba(20, 198, 203, 0.1);
+  --color-brand-gold: #ffcf25;
+  --color-brand-cyan: #14c6cb;
+  --color-brand-blue: #1868f2;
+  --color-brand-emerald: #00ca8e;
+  --color-brand-emerald-light: #14c6cb;
   
   --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-float: float 6s ease-in-out infinite;
@@ -20,30 +31,32 @@
 }
 
 :root {
-  --background: #070b19;
-  --foreground: #f8fafc;
-  --card-bg: rgba(13, 21, 39, 0.65);
-  --card-border: rgba(255, 255, 255, 0.08);
+  --background: #000000;
+  --foreground: #ffffff;
+  --card-bg: #15181e;
+  --card-border: #3b3d45;
+  --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-outfit: 'Outfit', 'Inter', -apple-system, sans-serif;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: var(--font-outfit);
   overflow-x: hidden;
+  /* Dark space backdrop grid matching the developer aesthetic */
   background-image: 
-    radial-gradient(circle at 10% 20%, rgba(30, 58, 138, 0.15) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(5, 150, 105, 0.12) 0%, transparent 40%);
+    linear-gradient(rgba(255, 255, 255, 0.007) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.007) 1px, transparent 1px);
+  background-size: 32px 32px;
   background-attachment: fixed;
 }
 
-/* Glassmorphism Utilities */
+/* HashiCorp-inspired card surfaces and hairline borders */
 .glass-panel {
-  background: rgba(13, 21, 39, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  background: #15181e;
+  border: 1px solid rgba(178, 182, 189, 0.1);
+  border-radius: 12px; /* rounded.lg */
 }
 
 .glass-panel-hover {
@@ -51,20 +64,9 @@ body {
 }
 
 .glass-panel-hover:hover {
-  background: rgba(18, 30, 54, 0.7);
-  border-color: rgba(6, 182, 212, 0.3);
-  box-shadow: 0 12px 40px 0 rgba(6, 182, 212, 0.15);
-  transform: translateY(-2px);
-}
-
-.glass-card-gold:hover {
-  border-color: rgba(251, 191, 36, 0.3);
-  box-shadow: 0 12px 40px 0 rgba(251, 191, 36, 0.1);
-}
-
-.glass-card-emerald:hover {
-  border-color: rgba(52, 211, 153, 0.3);
-  box-shadow: 0 12px 40px 0 rgba(52, 211, 153, 0.1);
+  background: #1f232b; /* surface-2 */
+  border-color: rgba(20, 198, 203, 0.3); /* Waypoint Cyan hover accent */
+  transform: translateY(-1px);
 }
 
 /* Custom Scrollbar */
@@ -74,7 +76,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #070b19;
+  background: #000000;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -88,41 +90,41 @@ body {
 
 /* Pulse animation utility for status markers */
 .glow-pulse-blue {
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 12px rgba(24, 104, 242, 0.6);
   animation: pulse-blue 2s infinite;
 }
 
 .glow-pulse-emerald {
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 12px rgba(0, 202, 142, 0.6);
   animation: pulse-emerald 2s infinite;
 }
 
 .glow-pulse-rose {
-  box-shadow: 0 0 12px rgba(244, 63, 94, 0.6);
+  box-shadow: 0 0 12px rgba(230, 43, 30, 0.6);
   animation: pulse-rose 2s infinite;
 }
 
 .glow-pulse-amber {
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+  box-shadow: 0 0 12px rgba(255, 207, 37, 0.6);
   animation: pulse-amber 2s infinite;
 }
 
 @keyframes pulse-blue {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(59, 130, 246, 0); }
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(24, 104, 242, 0.7); }
+  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(24, 104, 242, 0); }
 }
 
 @keyframes pulse-emerald {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(16, 185, 129, 0); }
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 202, 142, 0.7); }
+  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(0, 202, 142, 0); }
 }
 
 @keyframes pulse-rose {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7); }
-  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(244, 63, 94, 0); }
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(230, 43, 30, 0.7); }
+  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(230, 43, 30, 0); }
 }
 
 @keyframes pulse-amber {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
-  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(245, 158, 11, 0); }
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 207, 37, 0.7); }
+  50% { transform: scale(1.05); box-shadow: 0 0 12px 6px rgba(255, 207, 37, 0); }
 }
